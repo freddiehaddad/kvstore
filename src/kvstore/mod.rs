@@ -4,6 +4,11 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
+/// A key/value database with strong durability.  All entries in the database
+/// are stored in non-volatile memory as part of each `insert` and `update`
+/// operation along with a 32-bit CRC value.  Subsequently, each `get` request
+/// does incur some IO cost as the value is stored in the database.
+
 struct KeyValuePair {
     key: String,
     value: String,
@@ -15,6 +20,7 @@ pub struct ActionKV {
 }
 
 impl ActionKV {
+    /// Opens the database located at `path`.
     pub fn open(path: &Path) -> Result<ActionKV> {
         let file = std::fs::OpenOptions::new()
             .read(true)
@@ -27,6 +33,8 @@ impl ActionKV {
         Ok(akv)
     }
 
+    /// Deletes the value from the database associated with `key`.  Note that
+    /// the key remains in the database but the value empty.
     pub fn delete(&mut self, key: String) -> Result<()> {
         if !self.database.contains_key(&key) {
             let error_message = format!("key: {key} not found in database");
@@ -39,6 +47,8 @@ impl ActionKV {
         Ok(())
     }
 
+    /// Retrieves `key` from the database and returns is associated `value`. If
+    /// the key does not exist an error is returned.
     pub fn get(&self, key: String) -> Result<String> {
         let position = match self.database.get(&key) {
             Some(position) => position,
@@ -53,17 +63,24 @@ impl ActionKV {
         Ok(akv.value)
     }
 
+    /// Creaes or updates an entry in the database with the `key` and `value`
+    /// association.
     pub fn insert(&mut self, key: String, value: String) -> Result<()> {
         let position = self.insert_in_database(&key, &value)?;
         self.database.insert(key, position);
         Ok(())
     }
 
+    /// Creaes or updates an entry in the database with the `key` and `value`
+    /// association.
+    ///
+    /// Note: Calling update is equivalent to calling insert.
     pub fn update(&mut self, key: String, value: String) -> Result<()> {
         self.insert(key, value)?;
         Ok(())
     }
 
+    /// Reads the database file located at `path` into memory.
     fn load(&mut self) -> Result<()> {
         let mut file = BufReader::new(&self.file);
 
@@ -85,6 +102,7 @@ impl ActionKV {
         Ok(())
     }
 
+    /// Rerieve the record stored in the database at byte offset `position`.
     fn get_record_at_position(&self, position: u64) -> Result<KeyValuePair> {
         let mut file = std::io::BufReader::new(&self.file);
         file.seek(SeekFrom::Start(position))?;
@@ -92,6 +110,7 @@ impl ActionKV {
         Ok(akv)
     }
 
+    /// Writes a new record in the database for the `key`/`value` pair.
     fn insert_in_database(&mut self, key: &str, value: &str) -> Result<u64> {
         let key_length = key.len();
         let value_length = value.len();
@@ -121,6 +140,7 @@ impl ActionKV {
         Ok(current_position)
     }
 
+    /// Loads an entry `key`/`value` pair from the database.
     fn process_record<R: std::io::Read>(file: &mut R) -> Result<KeyValuePair> {
         let saved_checksum = file.read_u32::<BigEndian>()?;
         let key_length = file.read_u32::<BigEndian>()?;
